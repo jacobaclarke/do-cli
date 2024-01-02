@@ -152,7 +152,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "do-cli"
+name = "doit-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
