@@ -21,3 +21,9 @@ tasks:
 $ doit hello
 Hello world
 ```
+
+## Installation
+
+```bash
+$ cargo install --git https://github.com/jacobaclarke/do-cli.git
+```
