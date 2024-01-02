@@ -1,0 +1,26 @@
+[package]
+name = "do-cli"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.78"
+clap = { version = "4.4.12", features = ["derive"] }
+rand = "0.8.5"
+serde = { version = "1.0.193", features = ["derive"] }
+serde_yaml = "0.9.29"
+strum = { version = "0.25.0", features = ["strum_macros"] }
+strum_macros = "0.25.3"
+tempfile = "3.9.0"
+
+[[bin]]
+name = "doit"
+path = "src/main.rs"
+
+[profile.release]
+strip = true  # Automatically strip symbols from the binary.
+
+[dev-dependencies]
+dirs = "5.0.1"

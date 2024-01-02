@@ -1,0 +1,9 @@
+env:
+  NAME: jacob
+tasks:
+  cat: 
+    cmd: cat do.yaml
+  echo:
+    cmd: echo $BOY
+  i:
+    cmd: cargo install --path .
