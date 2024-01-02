@@ -1,5 +1,7 @@
 [package]
 name = "doit-cli"
+description = "A CLI tool for managing your simple scripts."
+license = "MIT"
 version = "0.1.0"
 edition = "2021"
 
