@@ -11,7 +11,7 @@ env:
   NAME: world
 tasks:
   hello:
-    cmd: echo "$GREETING, $NAME!"
+    cmd: echo $GREETING $NAME
     env:
       GREETING: Hello
   ```
@@ -19,5 +19,5 @@ tasks:
 
 ```bash
 $ doit hello
-Hello, world!
+Hello world
 ```

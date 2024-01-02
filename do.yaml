@@ -1,20 +1,7 @@
 env:
-  NAME: jacob
-  IMAGE: ${REGISTRY}
+  NAME: world
 tasks:
-  get:
-    cmd: echo ${REGISTRY}$1
-  cat: 
-    cmd: cat do.yaml
-  echo:
-    cmd: echo $HELLO
-    env: 
-      HELLO: jacob
-  i:
-    cmd: cargo install --path .
-  nest:
-    cmd: doit echo
+  hello:
+    cmd: echo ${GREETING} $NAME!
     env:
-      HELLO: travis
-  
-  
+      GREETING: "Hello"
