@@ -3,13 +3,18 @@ env:
   IMAGE: ${REGISTRY}
 tasks:
   get:
-    cmd: echo ${REGISTRY}{{ARGS}}
+    cmd: echo ${REGISTRY}$1
   cat: 
     cmd: cat do.yaml
   echo:
-    cmd: echo hello
+    cmd: echo $HELLO
+    env: 
+      HELLO: jacob
   i:
     cmd: cargo install --path .
   nest:
     cmd: doit echo
+    env:
+      HELLO: travis
+  
   

@@ -8,6 +8,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::{path::PathBuf, str};
 use strum_macros::EnumString;
+use colored::*;
 
 /// A command line tool to run commands defined in a do.yaml file
 #[derive(Parser)]
@@ -27,11 +28,12 @@ fn main() -> anyhow::Result<()> {
     if cli.verbose {
         println!("Verbose mode enabled");
         std::env::set_var("RUST_LOG", "debug");
+        dbg!(&conf);
     }
 
     if let Some(name) = cli.name {
         let name = name.join(" ");
-        println!("Name: {}", name);
+        println!("Name: {}", name.green());
         conf.exec(&name)?;
     } else {
         conf.list_commands();
@@ -61,21 +63,35 @@ enum WorkDir {
 
 impl Conf {
     fn list_commands(&self) {
+        println!("Available commands:");
         for (name, _) in &self.tasks {
-            println!("{}", name);
+            println!("  {}", name.green());
+            for row in self.tasks[name].cmd.lines() {
+                println!("     {}", row.blue());
+            }
         }
+    }
+
+    fn replace_args(cmd: &str, args: &Vec<&str>) -> String {
+        let mut cmd = String::from_str(cmd).unwrap();
+        for idx in 1..(args.len() + 1) {
+            cmd = cmd.replace(format!("${idx}").as_str(), args[idx - 1].trim());
+        }
+        cmd
     }
 
     fn exec(&self, cmd: &str) -> anyhow::Result<String> {
         let mut splits = cmd.split(" ");
         let name = splits.next().unwrap().trim();
-        let args = splits.collect::<Vec<_>>().join(" ");
+        let args = splits.collect::<Vec<_>>();
         let task = self.tasks.get(name).expect("No task found");
-        let final_command = task.cmd.replace("{{ARGS}}", args.trim());
+        let cmd = Conf::replace_args(task.cmd.as_str(), &args);
+
         if env::var("RUST_LOG").is_ok() {
-            dbg!(&final_command);
+            dbg!(&cmd);
         }
-        let cmd_args: Vec<&str> = vec!["-c", final_command.as_str()];
+        println!("Running: {}", cmd.green());
+        let cmd_args: Vec<&str> = vec!["-c", cmd.as_str()];
         let mut cmd = Command::new("/bin/sh");
         let mut env = self.env.clone();
         env.extend(task.env.clone());
@@ -83,7 +99,7 @@ impl Conf {
         // this is to collect the creaed envs
         let mut parsed_env: IndexMap<String, String> = IndexMap::new();
         for (key, value) in env {
-            let cleaned_value = value.replace("{{ARGS}}", args.trim());
+            let cleaned_value = Conf::replace_args(value.as_str(), &args);
 
             // create a command to evaluate the env
             let mut env_cmd = Command::new("/bin/sh");
@@ -364,7 +380,7 @@ tasks:
         let conf = serde_yaml::from_str::<Conf>(
             r#"tasks:
     hello:
-        cmd: echo hello {{ARGS}}"#,
+        cmd: echo hello $1"#,
         )?;
         assert_eq!(conf.exec("hello world")?, "hello world\n");
         Ok(())
@@ -378,7 +394,7 @@ tasks:
     hello:
         cmd: echo hello $ARGS
         env:
-            ARGS: "{{ARGS}}""#,
+            ARGS: "$1""#,
         )?;
         assert_eq!(conf.exec("hello world")?, "hello world\n");
         Ok(())
@@ -403,9 +419,20 @@ tasks:
         let conf = serde_yaml::from_str::<Conf>(
             r#"tasks:
     hello:
-        cmd: echo hello {{ARGS}}"#,
+        cmd: echo hello $1"#,
         )?;
         assert_eq!(conf.exec("hello real-world")?, "hello real-world\n");
+        Ok(())
+    }
+
+    #[test]
+    fn test_multiple_args() -> anyhow::Result<()> {
+        let conf = serde_yaml::from_str::<Conf>(
+            r#"tasks:
+    hello:
+        cmd: echo hello $1 $2"#,
+        )?;
+        assert_eq!(conf.exec("hello real world")?, "hello real world\n");
         Ok(())
     }
 }
