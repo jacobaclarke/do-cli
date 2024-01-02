@@ -1,9 +1,11 @@
 use clap::Parser;
+use indexmap::IndexMap;
 use serde::Deserialize;
 use std::env;
+use std::fs;
 use std::iter::Extend;
 use std::process::Command;
-use std::{collections::HashMap, fs};
+use std::str::FromStr;
 use std::{path::PathBuf, str};
 use strum_macros::EnumString;
 
@@ -42,9 +44,9 @@ fn main() -> anyhow::Result<()> {
 #[derive(Deserialize, Debug, Default)]
 struct Conf {
     #[serde(default)]
-    tasks: HashMap<String, Task>,
+    tasks: IndexMap<String, Task>,
     #[serde(default)]
-    env: HashMap<String, String>,
+    env: IndexMap<String, String>,
 }
 
 #[derive(Deserialize, Debug, EnumString, Default, PartialEq)]
@@ -69,18 +71,41 @@ impl Conf {
         let name = splits.next().unwrap().trim();
         let args = splits.collect::<Vec<_>>().join(" ");
         let task = self.tasks.get(name).expect("No task found");
-        let final_command = task.cmd.replace("{{ARGS}}", args.as_str());
+        let final_command = task.cmd.replace("{{ARGS}}", args.trim());
         if env::var("RUST_LOG").is_ok() {
             dbg!(&final_command);
         }
-        let args: Vec<&str> = vec!["-c", final_command.as_str()];
+        let cmd_args: Vec<&str> = vec!["-c", final_command.as_str()];
         let mut cmd = Command::new("/bin/sh");
-        cmd.args(args);
         let mut env = self.env.clone();
         env.extend(task.env.clone());
+
+        // this is to collect the creaed envs
+        let mut parsed_env: IndexMap<String, String> = IndexMap::new();
         for (key, value) in env {
-            cmd.env(key, value);
+            let cleaned_value = value.replace("{{ARGS}}", args.trim());
+
+            // create a command to evaluate the env
+            let mut env_cmd = Command::new("/bin/sh");
+            env_cmd.args(&["-c", format!("echo {}", &cleaned_value).as_str()]);
+            for (key, value) in &parsed_env {
+                env_cmd.env(key, value);
+            }
+
+            let output = env_cmd.output()?;
+            let output = String::from_utf8_lossy(&output.stdout).to_string();
+            let trimmed_output = output.trim();
+
+            parsed_env.insert(
+                String::from_str(key.as_str())?,
+                String::from_str(trimmed_output)?,
+            );
+            if env::var("RUST_LOG").is_ok() {
+                dbg!(&key, &trimmed_output);
+            }
+            cmd.env(key, output);
         }
+        cmd.args(cmd_args);
 
         // set the working directory
         if let Some(path) = &task.workdir {
@@ -113,7 +138,7 @@ impl Conf {
 struct Task {
     cmd: String,
     #[serde(default)]
-    env: HashMap<String, String>,
+    env: IndexMap<String, String>,
     #[serde(default)]
     workdir: Option<PathBuf>,
     #[serde(default)]
@@ -345,5 +370,42 @@ tasks:
         Ok(())
     }
 
+    /// test that args are passed to env
+    #[test]
+    fn test_args_to_env() -> anyhow::Result<()> {
+        let conf = serde_yaml::from_str::<Conf>(
+            r#"tasks:
+    hello:
+        cmd: echo hello $ARGS
+        env:
+            ARGS: "{{ARGS}}""#,
+        )?;
+        assert_eq!(conf.exec("hello world")?, "hello world\n");
+        Ok(())
+    }
 
+    #[test]
+    fn test_evaluated_env() -> anyhow::Result<()> {
+        let conf = serde_yaml::from_str::<Conf>(
+            r#"tasks:
+    hello:
+        cmd: echo hello $NAME
+        env:
+            HIDDEN: dworld
+            NAME: $HIDDEN"#,
+        )?;
+        assert_eq!(conf.exec("hello")?, "hello dworld\n");
+        Ok(())
+    }
+
+    #[test]
+    fn test_hyphenated_args() -> anyhow::Result<()> {
+        let conf = serde_yaml::from_str::<Conf>(
+            r#"tasks:
+    hello:
+        cmd: echo hello {{ARGS}}"#,
+        )?;
+        assert_eq!(conf.exec("hello real-world")?, "hello real-world\n");
+        Ok(())
+    }
 }
