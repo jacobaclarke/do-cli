@@ -33,6 +33,7 @@ fn main() -> anyhow::Result<()> {
 
     if let Some(name) = cli.name {
         let name = name.join(" ");
+        println!("------------------------------------");
         println!("Name: {}", name.green());
         conf.exec(&name)?;
     } else {
@@ -63,11 +64,18 @@ enum WorkDir {
 
 impl Conf {
     fn list_commands(&self) {
-        println!("Available commands:");
+        println!("Environment:\n--------------------");
+        for (key, value) in &self.env {
+            println!("{}={}", key.red(), value.blue());
+        }
+        println!("\nAvailable commands:\n--------------------");
         for (name, _) in &self.tasks {
-            println!("  {}", name.green());
+            println!("{}", name.green());
+            for (key, value) in &self.tasks[name].env {
+                println!("  {}={}", key.red(), value.blue());
+            }
             for row in self.tasks[name].cmd.lines() {
-                println!("     {}", row.blue());
+                println!("  {}", row.blue());
             }
         }
     }
