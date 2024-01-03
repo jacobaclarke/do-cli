@@ -20,14 +20,13 @@ fn main() -> anyhow::Result<()> {
     if cli.verbose {
         println!("Verbose mode enabled");
         std::env::set_var("RUST_LOG", "debug");
-        dbg!(&conf);
     }
 
     if let Some(name) = cli.name {
-        let name = name.join(" ");
+        let print_name = name.join(" ");
         println!("------------------------------------");
-        println!("Name: {}", name.green());
-        conf.exec(&name)?;
+        println!("Name: {}", print_name.green());
+        conf.exec(name.iter().map(|s| &**s).collect())?;
     } else {
         conf.list_commands();
     }

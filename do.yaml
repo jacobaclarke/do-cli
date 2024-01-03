@@ -5,3 +5,7 @@ tasks:
     cmd: echo ${GREETING} $NAME!
     env:
       GREETING: "Hello"
+  test:
+    cmd: echo $2 $1
+  i:
+    cmd: cargo install --path . --force

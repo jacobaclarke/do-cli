@@ -3,11 +3,13 @@ use indexmap::IndexMap;
 use serde::Deserialize;
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::iter::Extend;
 use std::process::Command;
 use std::str::FromStr;
 use std::{path::PathBuf, str};
 use strum_macros::EnumString;
+use tempfile::NamedTempFile;
 
 #[derive(Deserialize, Debug, Default)]
 pub struct Conf {
@@ -45,26 +47,28 @@ impl Conf {
         }
     }
 
-    fn replace_args(cmd: &str, args: &Vec<&str>) -> String {
-        let mut cmd = String::from_str(cmd).unwrap();
-        for idx in 1..(args.len() + 1) {
-            cmd = cmd.replace(format!("${idx}").as_str(), args[idx - 1].trim());
-        }
-        cmd
-    }
+    pub fn exec(&self, cmd: Vec<&str>) -> anyhow::Result<String> {
+        let name = cmd[0];
+        let args = cmd[1..].to_vec();
+        // dbg!(&args);
+        // let args = args.join(" ");
 
-    pub fn exec(&self, cmd: &str) -> anyhow::Result<String> {
-        let mut splits = cmd.split(" ");
-        let name = splits.next().unwrap().trim();
-        let args = splits.collect::<Vec<_>>();
         let task = self.tasks.get(name).expect("No task found");
-        let cmd = Conf::replace_args(task.cmd.as_str(), &args);
+        let mut file = NamedTempFile::new()?;
+        file.write(task.cmd.as_str().as_bytes())?;
+        let path = file.path().to_str().unwrap();
+        // let path = file.into_temp_path();
+        // let cmd = Conf::replace_args(task.cmd.as_str(), &args);
 
         if env::var("RUST_LOG").is_ok() {
             dbg!(&cmd);
         }
-        println!("Running: {}", cmd.green());
-        let cmd_args: Vec<&str> = vec!["-c", cmd.as_str()];
+        // println!("Running: {}", cmd.green());
+
+        let mut cmd_args = vec![path];
+        let mut arg_clone = args.clone();
+        cmd_args.append(&mut arg_clone);
+
         let mut cmd = Command::new("/bin/sh");
         let mut env = self.env.clone();
         env.extend(task.env.clone());
@@ -72,29 +76,36 @@ impl Conf {
         // this is to collect the creaed envs
         let mut parsed_env: IndexMap<String, String> = IndexMap::new();
         for (key, value) in env {
-            let cleaned_value = Conf::replace_args(value.as_str(), &args);
-
+              let mut env_file = NamedTempFile::new()?;
+            env_file.write(format!("echo {}", value.as_str()).as_str().as_bytes())?;
             // create a command to evaluate the env
+            let path = env_file.path().to_str().unwrap();
             let mut env_cmd = Command::new("/bin/sh");
-            env_cmd.args(&["-c", format!("echo {}", &cleaned_value).as_str()]);
+            let mut env_cmd_args = vec![path];
+            let mut arg_clone = args.clone();
+            env_cmd_args.append(&mut arg_clone);
+            env_cmd.args(env_cmd_args);
             for (key, value) in &parsed_env {
-                env_cmd.env(key, value);
+                let env_val = env::var(key).unwrap_or(value.to_string());
+                dbg!(&env_val);
+                env_cmd.env(key, env_val);
             }
-
             let output = env_cmd.output()?;
-            let output = String::from_utf8_lossy(&output.stdout).to_string();
-            let trimmed_output = output.trim();
+            let output = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let trimmed_output = env::var(&key).unwrap_or(output);
+
 
             parsed_env.insert(
                 String::from_str(key.as_str())?,
-                String::from_str(trimmed_output)?,
+                String::from(&trimmed_output),
             );
             if env::var("RUST_LOG").is_ok() {
                 dbg!(&key, &trimmed_output);
             }
-            cmd.env(key, output);
+            cmd.env(key, trimmed_output);
         }
         cmd.args(cmd_args);
+        // dbg!(&cmd);
 
         // set the working directory
         if let Some(path) = &task.workdir {
@@ -205,7 +216,7 @@ tasks:
             echo hello
             echo world"#,
         )?;
-        let res = conf.exec("hello")?;
+        let res = conf.exec(vec!["hello"])?;
         assert_eq!(res, "hello\nworld\n");
         Ok(())
     }
@@ -219,7 +230,7 @@ tasks:
     hello:
         cmd: echo hello $NAME"#;
         let conf: Conf = serde_yaml::from_str(&text)?;
-        assert_eq!(conf.exec("hello")?, "hello world\n");
+        assert_eq!(conf.exec(vec!["hello"])?, "hello world\n");
         Ok(())
     }
 
@@ -242,7 +253,7 @@ tasks:
         let child_conf: Conf = serde_yaml::from_str(&child)?;
 
         conf.extend(child_conf);
-        assert_eq!(conf.exec("hello")?, "hello world\n");
+        assert_eq!(conf.exec(vec!["hello"])?, "hello world\n");
         Ok(())
     }
 
@@ -261,7 +272,7 @@ tasks:
         let child_conf: Conf = serde_yaml::from_str(&child)?;
 
         conf.extend(child_conf);
-        assert_eq!(conf.exec("hello")?, "hello child\n");
+        assert_eq!(conf.exec(vec!["hello"])?, "hello child\n");
         Ok(())
     }
 
@@ -276,7 +287,7 @@ tasks:
             NAME: task"#;
         let conf: Conf = serde_yaml::from_str(&parent)?;
 
-        assert_eq!(conf.exec("hello")?, "hello task\n");
+        assert_eq!(conf.exec(vec!["hello"])?, "hello task\n");
         Ok(())
     }
 
@@ -338,15 +349,6 @@ tasks:
 
         Ok(())
     }
-    #[test]
-    fn test_popping() -> anyhow::Result<()> {
-        let nums = "hello";
-        let mut splits = nums.split_whitespace();
-        let name = splits.next().unwrap();
-        let args = splits.collect::<Vec<_>>().join(" ");
-        dbg!(name, args);
-        Ok(())
-    }
 
     #[test]
     fn test_extra_args() -> anyhow::Result<()> {
@@ -355,7 +357,7 @@ tasks:
     hello:
         cmd: echo hello $1"#,
         )?;
-        assert_eq!(conf.exec("hello world")?, "hello world\n");
+        assert_eq!(conf.exec(vec!["hello", "world"])?, "hello world\n");
         Ok(())
     }
 
@@ -367,9 +369,9 @@ tasks:
     hello:
         cmd: echo hello $ARGS
         env:
-            ARGS: "$1""#,
+            ARGS: $1"#,
         )?;
-        assert_eq!(conf.exec("hello world")?, "hello world\n");
+        assert_eq!(conf.exec(vec!["hello", "world"])?, "hello world\n");
         Ok(())
     }
 
@@ -383,7 +385,7 @@ tasks:
             HIDDEN: dworld
             NAME: $HIDDEN"#,
         )?;
-        assert_eq!(conf.exec("hello")?, "hello dworld\n");
+        assert_eq!(conf.exec(vec!["hello"])?, "hello dworld\n");
         Ok(())
     }
 
@@ -394,7 +396,10 @@ tasks:
     hello:
         cmd: echo hello $1"#,
         )?;
-        assert_eq!(conf.exec("hello real-world")?, "hello real-world\n");
+        assert_eq!(
+            conf.exec(vec!["hello", "real-world"])?,
+            "hello real-world\n"
+        );
         Ok(())
     }
 
@@ -405,7 +410,39 @@ tasks:
     hello:
         cmd: echo hello $1 $2"#,
         )?;
-        assert_eq!(conf.exec("hello real world")?, "hello real world\n");
+        assert_eq!(
+            conf.exec(vec!["hello", "real", "world"])?,
+            "hello real world\n"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_quoted_args() -> anyhow::Result<()> {
+        let conf = serde_yaml::from_str::<Conf>(
+            r#"tasks:
+    hello:
+        cmd: echo hello $1"#,
+        )?;
+        assert_eq!(
+            conf.exec(vec!["hello", "real world"])?,
+            "hello real world\n"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_override_env() -> anyhow::Result<()> {
+        env::set_var("NAME_TEST", "override");
+        let conf = serde_yaml::from_str::<Conf>(
+            r#"env:
+    NAME: world
+tasks:
+    hello:
+        cmd: echo hello $NAME_TEST"#,
+        )?;
+        assert_eq!(conf.exec(vec!["hello"])?, "hello override\n");
+        env::remove_var("NAME_TEST");
         Ok(())
     }
 }
