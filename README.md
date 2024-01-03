@@ -5,7 +5,7 @@ A simple task runners for the lazy.
 ## Installation
 
 ```bash
-cargo install --git https://github.com/jacobaclarke/do-cli.git
+cargo install --git https://github.com/jacobaclarke/doit-cli.git
 cargo install doit-cli
 ```
 
