@@ -87,7 +87,6 @@ impl Conf {
             env_cmd.args(env_cmd_args);
             for (key, value) in &parsed_env {
                 let env_val = env::var(key).unwrap_or(value.to_string());
-                dbg!(&env_val);
                 env_cmd.env(key, env_val);
             }
             let output = env_cmd.output()?;
