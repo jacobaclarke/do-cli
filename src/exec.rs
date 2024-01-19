@@ -1,53 +1,23 @@
-use colored::*;
-use indexmap::IndexMap;
-use serde::Deserialize;
-use std::env;
-use std::fs;
-use std::io::Write;
-use std::iter::Extend;
-use std::process::Command;
-use std::str::FromStr;
-use std::{path::PathBuf, str};
-use strum_macros::EnumString;
+use crate::config::Conf;
 use tempfile::NamedTempFile;
+use std::{
+    str::FromStr,
+    process::Command,
+    path::PathBuf,
+    env,
+    fs,
+    io::Write
+};
+use indexmap::IndexMap;
 
-#[derive(Deserialize, Debug, Default)]
-pub struct Conf {
-    #[serde(default)]
-    tasks: IndexMap<String, Task>,
-    #[serde(default)]
-    env: IndexMap<String, String>,
+
+
+pub trait Exec {
+    fn exec(&self, cmd: Vec<&str>) -> anyhow::Result<String>;
 }
 
-#[derive(Deserialize, Debug, EnumString, Default, PartialEq)]
-#[strum(serialize_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
-enum WorkDir {
-    Local,
-    #[default]
-    None,
-    Path(PathBuf),
-}
-
-impl Conf {
-    pub fn list_commands(&self) {
-        println!("Environment:\n--------------------");
-        for (key, value) in &self.env {
-            println!("{}={}", key.red(), value.blue());
-        }
-        println!("\nAvailable commands:\n--------------------");
-        for (name, _) in &self.tasks {
-            println!("{}", name.green());
-            for (key, value) in &self.tasks[name].env {
-                println!("  {}={}", key.red(), value.blue());
-            }
-            for row in self.tasks[name].cmd.lines() {
-                println!("  {}", row.blue());
-            }
-        }
-    }
-
-    pub fn exec(&self, cmd: Vec<&str>) -> anyhow::Result<String> {
+impl Exec for Conf {
+    fn exec(&self, cmd: Vec<&str>) -> anyhow::Result<String> {
         let name = cmd[0];
         let args = cmd[1..].to_vec();
         // dbg!(&args);
@@ -76,7 +46,7 @@ impl Conf {
         // this is to collect the creaed envs
         let mut parsed_env: IndexMap<String, String> = IndexMap::new();
         for (key, value) in env {
-              let mut env_file = NamedTempFile::new()?;
+            let mut env_file = NamedTempFile::new()?;
             env_file.write(format!("echo {}", value.as_str()).as_str().as_bytes())?;
             // create a command to evaluate the env
             let path = env_file.path().to_str().unwrap();
@@ -92,7 +62,6 @@ impl Conf {
             let output = env_cmd.output()?;
             let output = String::from_utf8_lossy(&output.stdout).trim().to_string();
             let trimmed_output = env::var(&key).unwrap_or(output);
-
 
             parsed_env.insert(
                 String::from_str(key.as_str())?,
@@ -124,24 +93,6 @@ impl Conf {
         println!("{}", res);
         Ok(res)
     }
-
-    fn extend(&mut self, other: Conf) {
-        self.tasks.extend(other.tasks);
-        let mut env = self.env.clone();
-        env.extend(other.env);
-        self.env = env;
-    }
-}
-
-#[derive(Deserialize, Debug)]
-struct Task {
-    cmd: String,
-    #[serde(default)]
-    env: IndexMap<String, String>,
-    #[serde(default)]
-    workdir: Option<PathBuf>,
-    #[serde(default)]
-    local: bool,
 }
 
 pub fn get_dofiles(wd: Option<PathBuf>) -> anyhow::Result<Conf> {
@@ -194,31 +145,6 @@ pub fn get_dofiles(wd: Option<PathBuf>) -> anyhow::Result<Conf> {
 mod tests {
     use super::*;
     use std::fs::write;
-    #[test]
-    fn test_deserialize_cmds() -> anyhow::Result<()> {
-        let text = r#"
-tasks: 
-    hello:
-        cmd: echo hello"#;
-        let conf: Conf = serde_yaml::from_str(&text)?;
-        assert_eq!(conf.tasks["hello"].cmd, "echo hello");
-        Ok(())
-    }
-
-    #[test]
-    fn test_multiline_command() -> anyhow::Result<()> {
-        let conf = serde_yaml::from_str::<Conf>(
-            r#"
-tasks:
-    hello:
-        cmd: |
-            echo hello
-            echo world"#,
-        )?;
-        let res = conf.exec(vec!["hello"])?;
-        assert_eq!(res, "hello\nworld\n");
-        Ok(())
-    }
 
     #[test]
     fn test_global_env() -> anyhow::Result<()> {
@@ -229,29 +155,6 @@ tasks:
     hello:
         cmd: echo hello $NAME"#;
         let conf: Conf = serde_yaml::from_str(&text)?;
-        assert_eq!(conf.exec(vec!["hello"])?, "hello world\n");
-        Ok(())
-    }
-
-    #[test]
-    fn test_defaults() -> anyhow::Result<()> {
-        serde_yaml::from_str::<Conf>("")?;
-        Ok(())
-    }
-
-    #[test]
-    fn test_extend() -> anyhow::Result<()> {
-        let parent = r#"env:
-    NAME: world
-"#;
-        let child = r#"tasks:
-    hello:
-        cmd: echo hello $NAME"#;
-        let mut conf: Conf = serde_yaml::from_str(&parent)?;
-
-        let child_conf: Conf = serde_yaml::from_str(&child)?;
-
-        conf.extend(child_conf);
         assert_eq!(conf.exec(vec!["hello"])?, "hello world\n");
         Ok(())
     }
@@ -291,65 +194,6 @@ tasks:
     }
 
     #[test]
-    fn test_combine_tasks() -> anyhow::Result<()> {
-        let mut conf = serde_yaml::from_str::<Conf>(
-            r#"tasks:
-    hello:
-        cmd: echo hello"#,
-        )?;
-        let child = serde_yaml::from_str::<Conf>(
-            r#"tasks:
-    bye:
-        cmd: echo bye"#,
-        )?;
-        conf.extend(child);
-        assert_eq!(conf.tasks.len(), 2);
-        Ok(())
-    }
-
-    #[test]
-    fn test_local_default() -> anyhow::Result<()> {
-        let text = r#"
-tasks:
-    hello:
-        cmd: echo hello
-"#;
-        let conf: Conf = serde_yaml::from_str(&text)?;
-        assert_eq!(conf.tasks["hello"].local, false);
-        Ok(())
-    }
-
-    #[test]
-    fn parent_and_local_tasks_combine() -> anyhow::Result<()> {
-        let temp_dir = tempfile::tempdir()?;
-        write(
-            temp_dir.path().join("do.yaml"),
-            r#"env:
-    NAME: world
-tasks:
-    hello:
-        cmd: echo hello""#,
-        )?;
-
-        fs::create_dir(temp_dir.path().join("child"))?;
-
-        write(
-            temp_dir.path().join("child/do.yaml"),
-            r#"env:
-    BOY: child
-tasks:
-    bye:
-        cmd: echo bye"#,
-        )?;
-
-        let conf = get_dofiles(Some(temp_dir.path().join("child")))?;
-        assert_eq!(conf.tasks.len(), 2);
-        assert_eq!(conf.env.len(), 2);
-
-        Ok(())
-    }
-
-    #[test]
     fn test_extra_args() -> anyhow::Result<()> {
         let conf = serde_yaml::from_str::<Conf>(
             r#"tasks:
@@ -365,10 +209,10 @@ tasks:
     fn test_args_to_env() -> anyhow::Result<()> {
         let conf = serde_yaml::from_str::<Conf>(
             r#"tasks:
-    hello:
-        cmd: echo hello $ARGS
-        env:
-            ARGS: $1"#,
+        hello:
+            cmd: echo hello $ARGS
+            env:
+                ARGS: $1"#,
         )?;
         assert_eq!(conf.exec(vec!["hello", "world"])?, "hello world\n");
         Ok(())
@@ -399,6 +243,21 @@ tasks:
             conf.exec(vec!["hello", "real-world"])?,
             "hello real-world\n"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_multiline_command() -> anyhow::Result<()> {
+        let conf = serde_yaml::from_str::<Conf>(
+            r#"
+tasks:
+    hello:
+        cmd: |
+            echo hello
+            echo world"#,
+        )?;
+        let res = conf.exec(vec!["hello"])?;
+        assert_eq!(res, "hello\nworld\n");
         Ok(())
     }
 
@@ -442,6 +301,36 @@ tasks:
         )?;
         assert_eq!(conf.exec(vec!["hello"])?, "hello override\n");
         env::remove_var("NAME_TEST");
+        Ok(())
+    }
+
+    #[test]
+    fn parent_and_local_tasks_combine() -> anyhow::Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+        write(
+            temp_dir.path().join("do.yaml"),
+            r#"env:
+    NAME: world
+tasks:
+    hello:
+        cmd: echo hello""#,
+        )?;
+
+        fs::create_dir(temp_dir.path().join("child"))?;
+
+        write(
+            temp_dir.path().join("child/do.yaml"),
+            r#"env:
+    BOY: child
+tasks:
+    bye:
+        cmd: echo bye"#,
+        )?;
+
+        let conf = get_dofiles(Some(temp_dir.path().join("child")))?;
+        assert_eq!(conf.tasks.len(), 2);
+        assert_eq!(conf.env.len(), 2);
+
         Ok(())
     }
 }
