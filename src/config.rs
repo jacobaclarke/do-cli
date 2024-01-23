@@ -10,7 +10,7 @@ pub struct Conf {
     pub env: IndexMap<String, String>,
 }
 
-#[derive(Deserialize, Debug, PartialEq, Eq, Serialize)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Serialize, Default)]
 pub struct Task {
     pub cmd: String,
     #[serde(default)]
@@ -19,6 +19,10 @@ pub struct Task {
     pub workdir: Option<PathBuf>,
     #[serde(default)]
     pub local: bool,
+    #[serde(default)]
+    pub hidden: bool,
+    #[serde(default)]
+    pub display: bool
 }
 
 impl Conf {
@@ -35,12 +39,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_deserialize_error_handling() {
+        assert!(serde_yaml::from_str::<Conf>(
+            r#"
+            tasks:
+                booba:
+                    cmd : ["hi"]
+        "#,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_task_default_visible() {
+        assert!(!Task::default().hidden);
+    }
+
+    #[test]
     fn test_deserialize_cmds() -> anyhow::Result<()> {
         let text = r#"
 tasks: 
     hello:
         cmd: echo hello"#;
-        let conf: Conf = serde_yaml::from_str(&text)?;
+        let conf: Conf = serde_yaml::from_str(text)?;
         assert_eq!(conf.tasks["hello"].cmd, "echo hello");
         Ok(())
     }
@@ -70,9 +91,9 @@ tasks:
         let child = r#"tasks:
     hello:
         cmd: echo hello $NAME"#;
-        let mut conf: Conf = serde_yaml::from_str(&parent)?;
+        let mut conf: Conf = serde_yaml::from_str(parent)?;
 
-        let child_conf: Conf = serde_yaml::from_str(&child)?;
+        let child_conf: Conf = serde_yaml::from_str(child)?;
 
         conf.extend(child_conf);
         assert_eq!(conf.tasks["hello"].cmd, r#"echo hello $NAME"#);
@@ -103,8 +124,8 @@ tasks:
     hello:
         cmd: echo hello
 "#;
-        let conf: Conf = serde_yaml::from_str(&text)?;
-        assert_eq!(conf.tasks["hello"].local, false);
+        let conf: Conf = serde_yaml::from_str(text)?;
+        assert!(!conf.tasks["hello"].local);
         Ok(())
     }
 }

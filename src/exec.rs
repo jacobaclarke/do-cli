@@ -1,42 +1,38 @@
 use crate::config::Conf;
-use tempfile::NamedTempFile;
-use std::{
-    str::FromStr,
-    process::Command,
-    path::PathBuf,
-    env,
-    fs,
-    io::Write
-};
+use anyhow::anyhow;
 use indexmap::IndexMap;
+use std::{env, fs, io::Write, path::PathBuf, process::Command, str::FromStr};
+use tempfile::NamedTempFile;
 
-
-
+/// Adds abtility to execute commands from a configuration file
 pub trait Exec {
     fn exec(&self, cmd: Vec<&str>) -> anyhow::Result<String>;
 }
 
 impl Exec for Conf {
     fn exec(&self, cmd: Vec<&str>) -> anyhow::Result<String> {
-        let name = cmd[0];
-        let args = cmd[1..].to_vec();
-        // dbg!(&args);
-        // let args = args.join(" ");
+        let command_name = cmd[0];
+        let command_args = cmd[1..].to_vec();
 
-        let task = self.tasks.get(name).expect("No task found");
+        // retrive task from config
+        let task = self
+            .tasks
+            .get(command_name)
+            .ok_or(anyhow!("Task not found"))?;
+
+        // TODO Add matches here to check for args
+
+        // write the task to a temp file to be executed
         let mut file = NamedTempFile::new()?;
-        file.write(task.cmd.as_str().as_bytes())?;
-        let path = file.path().to_str().unwrap();
-        // let path = file.into_temp_path();
-        // let cmd = Conf::replace_args(task.cmd.as_str(), &args);
+        file.write_all(task.cmd.as_bytes())?;
+        let path = file.path().to_str().expect("Unable to write a temp file");
 
         if env::var("RUST_LOG").is_ok() {
             dbg!(&cmd);
         }
-        // println!("Running: {}", cmd.green());
 
         let mut cmd_args = vec![path];
-        let mut arg_clone = args.clone();
+        let mut arg_clone = command_args.clone();
         cmd_args.append(&mut arg_clone);
 
         let mut cmd = Command::new("/bin/sh");
@@ -47,12 +43,12 @@ impl Exec for Conf {
         let mut parsed_env: IndexMap<String, String> = IndexMap::new();
         for (key, value) in env {
             let mut env_file = NamedTempFile::new()?;
-            env_file.write(format!("echo {}", value.as_str()).as_str().as_bytes())?;
+            env_file.write_all(format!("echo {}", value.as_str()).as_str().as_bytes())?;
             // create a command to evaluate the env
             let path = env_file.path().to_str().unwrap();
             let mut env_cmd = Command::new("/bin/sh");
             let mut env_cmd_args = vec![path];
-            let mut arg_clone = args.clone();
+            let mut arg_clone = command_args.clone();
             env_cmd_args.append(&mut arg_clone);
             env_cmd.args(env_cmd_args);
             for (key, value) in &parsed_env {
@@ -112,39 +108,43 @@ pub fn get_dofiles(wd: Option<PathBuf>) -> anyhow::Result<Conf> {
         if subpath.exists() {
             // the below code is meant to ensure that children override parents
             let text = fs::read_to_string(subpath)?;
-            let mut new_conf: Conf = serde_yaml::from_str(&text)?;
+            let mut new_conf: Conf = serde_yaml::from_str(&text)
+                .map_err(|e| anyhow!("Failed to parse config: {}", e))?;
 
             // assign workdir to all tasks that don't have one
             new_conf.tasks = new_conf
                 .tasks
                 .into_iter()
                 .map(|(key, mut value)| {
-                    if value.workdir == None {
-                        value.workdir = Some(path.clone());
-                        return (key, value);
-                    }
+                    value.workdir = Some(value.workdir.unwrap_or(path.clone()));
                     (key, value)
                 })
                 .collect();
             new_conf.extend(conf);
             conf = new_conf;
         }
-        if path.parent().is_none() {
-            break;
+        match path.parent() {
+            Some(p) => path = p.to_path_buf(),
+            None => break,
         }
-        path = path.parent().unwrap().to_path_buf();
     }
     if conf.tasks.is_empty() {
-        anyhow::bail!("No do.yaml found");
+        Err(anyhow::anyhow!("No tasks found."))
+    } else {
+        Ok(conf)
     }
-
-    Ok(conf)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs::write;
+
+    #[test]
+    fn test_does_not_panic_when_missing() {
+        let conf = Conf::default();
+        assert!(conf.exec(vec!["nonexistent"]).is_err());
+    }
 
     #[test]
     fn test_global_env() -> anyhow::Result<()> {
@@ -154,7 +154,7 @@ env:
 tasks:
     hello:
         cmd: echo hello $NAME"#;
-        let conf: Conf = serde_yaml::from_str(&text)?;
+        let conf: Conf = serde_yaml::from_str(text)?;
         assert_eq!(conf.exec(vec!["hello"])?, "hello world\n");
         Ok(())
     }
@@ -169,9 +169,9 @@ tasks:
 tasks:
     hello:
         cmd: echo hello $NAME"#;
-        let mut conf: Conf = serde_yaml::from_str(&parent)?;
+        let mut conf: Conf = serde_yaml::from_str(parent)?;
 
-        let child_conf: Conf = serde_yaml::from_str(&child)?;
+        let child_conf: Conf = serde_yaml::from_str(child)?;
 
         conf.extend(child_conf);
         assert_eq!(conf.exec(vec!["hello"])?, "hello child\n");
@@ -187,7 +187,7 @@ tasks:
         cmd: echo hello $NAME
         env:
             NAME: task"#;
-        let conf: Conf = serde_yaml::from_str(&parent)?;
+        let conf: Conf = serde_yaml::from_str(parent)?;
 
         assert_eq!(conf.exec(vec!["hello"])?, "hello task\n");
         Ok(())

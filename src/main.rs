@@ -20,7 +20,7 @@ struct Cli {
     verbose: bool,
 
     #[clap(subcommand)]
-    command: Option<Command>,
+    command: Option<Command>
 }
 
 #[derive(Debug, Subcommand)]
@@ -33,10 +33,12 @@ enum Command {
     Run,
 }
 
-fn main() -> anyhow::Result<()> {
+fn run_cli() -> anyhow::Result<()> {
     let cli = Cli::parse();
     env::set_var("DOIT_PROD", "true");
-    let conf = get_dofiles(None).expect("No do.yaml found");
+
+    let conf = get_dofiles(None)?;
+
     if cli.verbose {
         println!("Verbose mode enabled");
         std::env::set_var("RUST_LOG", "debug");
@@ -66,7 +68,11 @@ fn main() -> anyhow::Result<()> {
             }
         }
     }
-
-    // search recursively for do.yaml files in parent directories
     Ok(())
+}
+
+fn main() {
+    if let Err(e) = run_cli() {
+        println!("{}", e)
+    }
 }

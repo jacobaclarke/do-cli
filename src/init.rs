@@ -9,9 +9,10 @@ pub fn init() {
     let path = Path::new("do.yaml");
     if path.exists() {
         println!("{}", "No file created: do.yaml already exists".green());
-        return;
     } else {
         println!("{}", "Creating do.yaml".green());
-        std::fs::write(path, text).unwrap();
+        if let Err(e) = std::fs::write(path, text) {
+            println!("{}", e);
+        }
     }
 }
