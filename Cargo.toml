@@ -2,7 +2,7 @@
 name = "doit-cli"
 description = "A CLI tool for managing your simple scripts."
 license = "MIT"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 authors = ["Jacob Clarke <jacobclarke@me.com>"]
 keywords = ["make", "task", "build", "script", "automation"]
