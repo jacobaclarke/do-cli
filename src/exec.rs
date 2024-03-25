@@ -35,7 +35,7 @@ impl Exec for Conf {
         let mut arg_clone = command_args.clone();
         cmd_args.append(&mut arg_clone);
 
-        let mut cmd = Command::new("/bin/sh");
+        let mut cmd = Command::new("/bin/bash");
         let mut env = self.env.clone();
         env.extend(task.env.clone());
 
@@ -46,7 +46,7 @@ impl Exec for Conf {
             env_file.write_all(format!("echo {}", value.as_str()).as_str().as_bytes())?;
             // create a command to evaluate the env
             let path = env_file.path().to_str().unwrap();
-            let mut env_cmd = Command::new("/bin/sh");
+            let mut env_cmd = Command::new("/bin/bash");
             let mut env_cmd_args = vec![path];
             let mut arg_clone = command_args.clone();
             env_cmd_args.append(&mut arg_clone);
