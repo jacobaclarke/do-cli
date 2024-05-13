@@ -22,7 +22,7 @@ impl List for Conf {
                     .iter()
                     .for_each(|(key, value)| println!("  {}={}", key.red(), value.blue()));
 
-                task.cmd
+                task.cmd[0]
                     .lines()
                     .for_each(|row| println!("  {}", row.blue()));
             });

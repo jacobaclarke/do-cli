@@ -2,7 +2,7 @@
 name = "doit-cli"
 description = "A CLI tool for managing your simple scripts."
 license = "MIT"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 authors = ["Jacob Clarke <jacobclarke@me.com>"]
 keywords = ["make", "task", "build", "script", "automation"]
@@ -17,6 +17,7 @@ anyhow = "1.0.78"
 clap = { version = "4.4.12", features = ["derive"] }
 colored = "2.1.0"
 indexmap = { version = "2.1.0", features = ["serde"] }
+rayon = "1.10.0"
 serde = { version = "1.0.193", features = ["derive"] }
 serde_yaml = "0.9.29"
 strum = { version = "0.25.0", features = ["strum_macros"] }

@@ -39,6 +39,24 @@ $ doit hello
 Hello world
 ```
 
+#### Parallel Execution
+
+```yaml
+# do.yaml
+tasks:
+  hello:
+    cmd:
+      - echo "hello"
+      - echo "world"
+```
+
+
+```bash
+$ doit hello
+hello
+world
+```
+
 ### Environment Variables
 
 #### Global Environment Variables

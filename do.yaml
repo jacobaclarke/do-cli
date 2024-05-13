@@ -9,3 +9,10 @@ tasks:
     cmd: echo $2 $1
   i:
     cmd: cargo install --path . --force
+  multiple: 
+    cmd:
+      - |
+        sleep 2
+        echo hello
+      - echo first
+      - echo second

@@ -1,6 +1,42 @@
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::marker::PhantomData;
 use std::path::PathBuf;
+
+use serde::de;
+use serde::de::Deserializer;
+
+fn string_or_seq_string<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct StringOrVec(PhantomData<Vec<String>>);
+
+    impl<'de> de::Visitor<'de> for StringOrVec {
+        type Value = Vec<String>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("string or list of strings")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(vec![value.to_owned()])
+        }
+
+        fn visit_seq<S>(self, visitor: S) -> Result<Self::Value, S::Error>
+        where
+            S: de::SeqAccess<'de>,
+        {
+            Deserialize::deserialize(de::value::SeqAccessDeserializer::new(visitor))
+        }
+    }
+
+    deserializer.deserialize_any(StringOrVec(PhantomData))
+}
 
 #[derive(Deserialize, Serialize, Debug, Default, PartialEq, Eq)]
 pub struct Conf {
@@ -12,7 +48,8 @@ pub struct Conf {
 
 #[derive(Deserialize, Debug, PartialEq, Eq, Serialize, Default)]
 pub struct Task {
-    pub cmd: String,
+    #[serde(deserialize_with = "string_or_seq_string")]
+    pub cmd: Vec<String>,
     #[serde(default)]
     pub env: IndexMap<String, String>,
     #[serde(default)]
@@ -22,7 +59,7 @@ pub struct Task {
     #[serde(default)]
     pub hidden: bool,
     #[serde(default)]
-    pub display: bool
+    pub display: bool,
 }
 
 impl Conf {
@@ -39,15 +76,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_deserialize_error_handling() {
-        assert!(serde_yaml::from_str::<Conf>(
+    fn test_deserialize_cmds_handling() {
+        let conf = serde_yaml::from_str::<Conf>(
             r#"
             tasks:
                 booba:
                     cmd : ["hi"]
         "#,
-        )
-        .is_err());
+        ).unwrap();
+        assert_eq!(conf.tasks["booba"].cmd, vec!["hi"]);
     }
 
     #[test]
@@ -62,7 +99,7 @@ tasks:
     hello:
         cmd: echo hello"#;
         let conf: Conf = serde_yaml::from_str(text)?;
-        assert_eq!(conf.tasks["hello"].cmd, "echo hello");
+        assert_eq!(conf.tasks["hello"].cmd[0], "echo hello");
         Ok(())
     }
 
@@ -96,7 +133,7 @@ tasks:
         let child_conf: Conf = serde_yaml::from_str(child)?;
 
         conf.extend(child_conf);
-        assert_eq!(conf.tasks["hello"].cmd, r#"echo hello $NAME"#);
+        assert_eq!(conf.tasks["hello"].cmd[0], r#"echo hello $NAME"#);
         Ok(())
     }
 

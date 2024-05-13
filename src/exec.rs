@@ -1,30 +1,32 @@
-use crate::config::Conf;
+use crate::config::{Conf, Task};
 use anyhow::anyhow;
 use indexmap::IndexMap;
+use rayon::prelude::*;
 use std::{env, fs, io::Write, path::PathBuf, process::Command, str::FromStr};
 use tempfile::NamedTempFile;
 
 /// Adds abtility to execute commands from a configuration file
 pub trait Exec {
+    fn exec_single(
+        &self,
+        task: &Task,
+        cmd: usize,
+        command_args: Vec<&str>,
+    ) -> anyhow::Result<String>;
     fn exec(&self, cmd: Vec<&str>) -> anyhow::Result<String>;
 }
 
 impl Exec for Conf {
-    fn exec(&self, cmd: Vec<&str>) -> anyhow::Result<String> {
-        let command_name = cmd[0];
-        let command_args = cmd[1..].to_vec();
-
-        // retrive task from config
-        let task = self
-            .tasks
-            .get(command_name)
-            .ok_or(anyhow!("Task not found"))?;
-
-        // TODO Add matches here to check for args
-
+    /// Executes a single command from a configuration file
+    fn exec_single(
+        &self,
+        task: &Task,
+        cmd: usize,
+        command_args: Vec<&str>,
+    ) -> anyhow::Result<String> {
         // write the task to a temp file to be executed
         let mut file = NamedTempFile::new()?;
-        file.write_all(task.cmd.as_bytes())?;
+        file.write_all(task.cmd[cmd].as_bytes())?;
         let path = file.path().to_str().expect("Unable to write a temp file");
 
         if env::var("RUST_LOG").is_ok() {
@@ -89,6 +91,25 @@ impl Exec for Conf {
         println!("{}", res);
         Ok(res)
     }
+
+    /// execute a shell command and return the output. Will also run the subcommands parallel
+    fn exec(&self, cmd: Vec<&str>) -> anyhow::Result<String> {
+        let command_name = cmd[0];
+        let command_args = cmd[1..].to_vec();
+
+        // retrive task from config
+        let task = self
+            .tasks
+            .get(command_name)
+            .ok_or(anyhow!("Task not found"))?;
+
+        // TODO Add matches here to check for args
+        (0..task.cmd.len())
+            .collect::<Vec<usize>>()
+            .into_par_iter()
+            .map(|x| self.exec_single(task, x, command_args.clone()))
+            .collect()
+    }
 }
 
 pub fn get_dofiles(wd: Option<PathBuf>) -> anyhow::Result<Conf> {
@@ -144,6 +165,19 @@ mod tests {
     fn test_does_not_panic_when_missing() {
         let conf = Conf::default();
         assert!(conf.exec(vec!["nonexistent"]).is_err());
+    }
+
+    #[test]
+    fn test_parallel_execution() -> anyhow::Result<()> {
+        let text = r#"
+tasks:
+    hello:
+        cmd: 
+            - echo hello
+            - echo world"#;
+        let conf: Conf = serde_yaml::from_str(text)?;
+        assert_eq!(conf.exec(vec!["hello"])?, "hello\nworld\n");
+        Ok(())
     }
 
     #[test]
